@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DreamLogger</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>🌙 Welcome to DreamLogger</h1>
+    <p>Your personal dream journal.</p>
+<a href="/logout">
+    <button>Logout</button>
+</a>
+
+    <!-- RECORD DREAM -->
+    <div class="card">
+
+        <h2>Record Your Dream</h2>
+
+        <textarea
+            id="dreamText"
+            placeholder="What did you dream about?"
+            rows="6"></textarea>
+
+        <h3>How did you feel when you woke up?</h3>
+
+        <select id="mood">
+            <option value="Happy">😊 Happy</option>
+            <option value="Calm">😌 Calm</option>
+            <option value="Confused">😕 Confused</option>
+            <option value="Scared">😨 Scared</option>
+            <option value="Sad">😢 Sad</option>
+        </select>
+
+        <br>
+
+        <button onclick="saveDream()">Save Dream</button>
+<p id="interpretation"></p>
+    </div>
+
+
+    <!-- ANALYTICS -->
+    <div class="card">
+
+        <h2>📊 Dream Analytics</h2>
+
+        <p>
+            Total Dreams:
+            <span id="totalDreams">0</span>
+        </p>
+
+        <p>
+            Most Common Mood:
+            <span id="commonMood">None yet</span>
+        </p>
+
+        <p>
+            Most Common Theme:
+            <span id="commonTheme">None yet</span>
+        </p>
+
+        <canvas id="moodChart"></canvas>
+
+    </div>
+
+
+    <!-- HISTORY -->
+    <div class="card">
+
+        <h2>Your Dream History</h2>
+
+        <input
+            type="text"
+            id="searchDreams"
+            placeholder="Search your dreams..."
+            oninput="showDreams()"
+        >
+
+        <div id="history"></div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+let moodChart;
+
+
+// DETECT DREAM THEME
+function detectTheme(dream) {
+
+    let text = dream.toLowerCase();
+
+    if (text.includes("fly") || text.includes("flying")) {
+        return "Flying";
+
+    } else if (text.includes("fall")) {
+        return "Falling";
+
+    } else if (
+        text.includes("water") ||
+        text.includes("ocean")
+    ) {
+        return "Water";
+
+    } else if (
+        text.includes("chase") ||
+        text.includes("chased") ||
+        text.includes("chasing")
+    ) {
+        return "Being Chased";
+
+    } else {
+        return "Other";
+    }
+}
+function interpretDream(theme, mood) {
+    let moodReflection = "";
+
+    if (mood === "Happy") {
+        moodReflection = " Your happy mood may suggest the dream felt positive or comforting.";
+    } else if (mood === "Calm") {
+        moodReflection = " Your calm mood may suggest the dream felt peaceful or reassuring.";
+    } else if (mood === "Confused") {
+        moodReflection = " Your confused mood may reflect uncertainty about what happened in the dream.";
+    } else if (mood === "Scared") {
+        moodReflection = " Your scared mood may suggest that parts of the dream felt stressful or unsettling.";
+    } else if (mood === "Sad") {
+        moodReflection = " Your sad mood may suggest the dream brought up difficult emotions.";
+    }
+
+    if (theme === "Flying") {
+        return "Reflection: Flying dreams can sometimes connect with feelings of freedom, confidence, or wanting to escape limitations." + moodReflection;
+    } else if (theme === "Falling") {
+        return "Reflection: Falling dreams can sometimes connect with uncertainty or feeling like something is outside your control." + moodReflection;
+    } else if (theme === "Water") {
+        return "Reflection: Water in dreams can sometimes reflect emotions, change, or uncertainty." + moodReflection;
+    } else if (theme === "Being Chased") {
+        return "Reflection: Being chased in a dream can sometimes connect with stress or something you may be avoiding." + moodReflection;
+    } else {
+        return "Reflection: Dreams can be influenced by many things, including recent experiences, thoughts, and emotions." + moodReflection;
+    }
+}
+
+// SAVE DREAM TO PYTHON DATABASE
+async function saveDream() {
+
+    let dream =
+        document.getElementById("dreamText").value.trim();
+
+    let mood =
+        document.getElementById("mood").value;
+
+    if (dream === "") {
+        alert("Please enter a dream first!");
+        return;
+    }
+
+
+    let dreamData = {
+
+        date: new Date().toLocaleDateString(),
+
+        text: dream,
+
+        mood: mood,
+
+        theme: detectTheme(dream)
+
+    };
+document.getElementById("interpretation").textContent =
+    interpretDream(dreamData.theme, dreamData.mood);
+
+    try {
+
+        let response = await fetch("/save-dream", {
+
+            method: "POST",
+
+            headers: {
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify(dreamData)
+
+        });
+
+
+        if (!response.ok) {
+            throw new Error("Dream could not be saved.");
+        }
+
+
+        document.getElementById("dreamText").value = "";
+
+        await showDreams();
+
+        alert("Dream saved successfully!");
+
+
+    } catch (error) {
+
+        console.error(error);
+
+        alert("There was a problem saving your dream.");
+
+    }
+}
+
+
+// LOAD DREAMS FROM DATABASE
+async function getDreams() {
+
+    let response = await fetch("/dreams");
+
+    return await response.json();
+
+}
+
+
+// DISPLAY DREAMS
+async function showDreams() {
+
+    let dreams = await getDreams();
+
+    let history =
+        document.getElementById("history");
+
+    let searchText =
+        document
+            .getElementById("searchDreams")
+            .value
+            .toLowerCase();
+
+
+    history.replaceChildren();
+
+
+    dreams
+        .filter(function(dream) {
+
+            return dream.text
+                .toLowerCase()
+                .includes(searchText);
+
+        })
+
+        .forEach(function(dream) {
+
+            let entry =
+                document.createElement("p");
+let deleteButton =
+    document.createElement("button");
+
+deleteButton.textContent = "Delete";
+let editButton =
+    document.createElement("button");
+
+editButton.textContent = "Edit";
+editButton.onclick = async function() {
+
+    let newText = prompt("Edit your dream:", dream.text);
+
+    if (newText === null) {
+        return;
+    }
+
+    newText = newText.trim();
+
+    if (newText === "") {
+        alert("Dream cannot be empty!");
+        return;
+    }
+
+    let updatedDream = {
+        text: newText,
+        mood: dream.mood,
+        theme: detectTheme(newText)
+    };
+
+    await fetch("/edit-dream/" + dream.id, {
+        method: "PUT",
+
+        headers: {
+            "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify(updatedDream)
+    });
+
+    await showDreams();
+};
+            entry.textContent =
+                dream.date +
+                " | Mood: " +
+                dream.mood +
+                " | Theme: " +
+                dream.theme +
+                " | " +
+                dream.text;
+deleteButton.onclick = async function() {
+
+    await fetch("/delete-dream/" + dream.id, {
+        method: "DELETE"
+    });
+
+    await showDreams();
+};
+entry.appendChild(editButton);
+entry.appendChild(deleteButton);
+            history.appendChild(entry);
+
+        });
+
+
+    updateAnalytics(dreams);
+    updateMoodChart(dreams);
+}
+
+
+// UPDATE ANALYTICS
+function updateAnalytics(dreams) {
+
+    document.getElementById("totalDreams").textContent =
+        dreams.length;
+
+
+    if (dreams.length === 0) {
+
+        document.getElementById("commonMood").textContent =
+            "None yet";
+
+        document.getElementById("commonTheme").textContent =
+            "None yet";
+
+        return;
+    }
+
+
+    let moodCounts = {};
+    let themeCounts = {};
+
+
+    dreams.forEach(function(dream) {
+
+        moodCounts[dream.mood] =
+            (moodCounts[dream.mood] || 0) + 1;
+
+        themeCounts[dream.theme] =
+            (themeCounts[dream.theme] || 0) + 1;
+
+    });
+
+
+    let commonMood =
+        Object.keys(moodCounts).reduce(function(a, b) {
+
+            return moodCounts[a] >= moodCounts[b]
+                ? a
+                : b;
+
+        });
+
+
+    let commonTheme =
+        Object.keys(themeCounts).reduce(function(a, b) {
+
+            return themeCounts[a] >= themeCounts[b]
+                ? a
+                : b;
+
+        });
+
+
+    document.getElementById("commonMood").textContent =
+        commonMood;
+
+    document.getElementById("commonTheme").textContent =
+        commonTheme;
+}
+
+
+// UPDATE CHART
+function updateMoodChart(dreams) {
+
+    let moodCounts = {
+        Happy: 0,
+        Calm: 0,
+        Confused: 0,
+        Scared: 0,
+        Sad: 0
+    };
+
+
+    dreams.forEach(function(dream) {
+
+        if (moodCounts[dream.mood] !== undefined) {
+            moodCounts[dream.mood]++;
+        }
+
+    });
+
+
+    if (moodChart) {
+        moodChart.destroy();
+    }
+
+
+    moodChart = new Chart(
+        document.getElementById("moodChart"),
+        {
+
+            type: "bar",
+
+            data: {
+
+                labels: [
+                    "Happy",
+                    "Calm",
+                    "Confused",
+                    "Scared",
+                    "Sad"
+                ],
+
+                datasets: [{
+
+                    label: "Number of Dreams",
+
+                    data: [
+                        moodCounts.Happy,
+                        moodCounts.Calm,
+                        moodCounts.Confused,
+                        moodCounts.Scared,
+                        moodCounts.Sad
+                    ]
+
+                }]
+
+            }
+
+        }
+    );
+}
+
+
+// LOAD DREAMS WHEN PAGE OPENS
+showDreams();
+
+</script>
+
+</body>
+</html>
