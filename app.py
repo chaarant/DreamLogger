@@ -5,7 +5,7 @@ from psycopg2.errors import UniqueViolation
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = "dreamlogger-secret-key"
+app.secret_key = os.environ["SECRET_KEY"]
 
 
 def get_db_connection():
