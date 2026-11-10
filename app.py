@@ -1,37 +1,19 @@
 from flask import Flask, render_template, request, jsonify, session, redirect
-import sqlite3
+import os
+import psycopg2
+from psycopg2.errors import UniqueViolation
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = "dreamlogger-secret-key"
-connection = sqlite3.connect("dreams.db")
-cursor = connection.cursor()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS dreams (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
-    text TEXT,
-    mood TEXT,
-    theme TEXT,
-    user_id INTEGER
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL
-)
-""")
+def get_db_connection():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
 
-connection.commit()
-connection.close()
 
 @app.route("/")
 def home():
-
     if "user_id" not in session:
         return redirect("/login")
 
@@ -40,27 +22,30 @@ def home():
 
 @app.route("/save-dream", methods=["POST"])
 def save_dream():
+    if "user_id" not in session:
+        return jsonify({"error": "Not logged in"}), 401
 
     data = request.get_json()
 
-    connection = sqlite3.connect("dreams.db")
+    connection = get_db_connection()
     cursor = connection.cursor()
 
     cursor.execute(
-    """
-    INSERT INTO dreams (date, text, mood, theme, user_id)
-    VALUES (?, ?, ?, ?, ?)
-    """,
-    (
-        data["date"],
-        data["text"],
-        data["mood"],
-        data["theme"],
-        session["user_id"]
+        """
+        INSERT INTO dreams (date, text, mood, theme, user_id)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (
+            data["date"],
+            data["text"],
+            data["mood"],
+            data["theme"],
+            session["user_id"]
+        )
     )
-)
 
     connection.commit()
+    cursor.close()
     connection.close()
 
     return jsonify({"message": "Dream saved successfully"})
@@ -68,19 +53,25 @@ def save_dream():
 
 @app.route("/dreams")
 def get_dreams():
+    if "user_id" not in session:
+        return jsonify({"error": "Not logged in"}), 401
 
-    connection = sqlite3.connect("dreams.db")
+    connection = get_db_connection()
     cursor = connection.cursor()
 
-    cursor.execute("""
-    SELECT id, date, text, mood, theme
-    FROM dreams
-    WHERE user_id = ?
-    ORDER BY id DESC
-""", (session["user_id"],))
+    cursor.execute(
+        """
+        SELECT id, date, text, mood, theme
+        FROM dreams
+        WHERE user_id = %s
+        ORDER BY id DESC
+        """,
+        (session["user_id"],)
+    )
 
     rows = cursor.fetchall()
 
+    cursor.close()
     connection.close()
 
     dreams = []
@@ -96,101 +87,121 @@ def get_dreams():
 
     return jsonify(dreams)
 
+
 @app.route("/delete-dream/<int:dream_id>", methods=["DELETE"])
 def delete_dream(dream_id):
+    if "user_id" not in session:
+        return jsonify({"error": "Not logged in"}), 401
 
-    connection = sqlite3.connect("dreams.db")
+    connection = get_db_connection()
     cursor = connection.cursor()
 
     cursor.execute(
-    "DELETE FROM dreams WHERE id = ? AND user_id = ?",
-    (dream_id, session["user_id"])
-)
+        """
+        DELETE FROM dreams
+        WHERE id = %s AND user_id = %s
+        """,
+        (dream_id, session["user_id"])
+    )
 
     connection.commit()
+    cursor.close()
     connection.close()
 
     return jsonify({"message": "Dream deleted successfully"})
+
+
 @app.route("/edit-dream/<int:dream_id>", methods=["PUT"])
 def edit_dream(dream_id):
+    if "user_id" not in session:
+        return jsonify({"error": "Not logged in"}), 401
 
     data = request.get_json()
 
-    connection = sqlite3.connect("dreams.db")
+    connection = get_db_connection()
     cursor = connection.cursor()
 
     cursor.execute(
-    """
-    UPDATE dreams
-    SET text = ?, mood = ?, theme = ?
-    WHERE id = ? AND user_id = ?
-    """,
-    (
-        data["text"],
-        data["mood"],
-        data["theme"],
-        dream_id,
-        session["user_id"]
+        """
+        UPDATE dreams
+        SET text = %s, mood = %s, theme = %s
+        WHERE id = %s AND user_id = %s
+        """,
+        (
+            data["text"],
+            data["mood"],
+            data["theme"],
+            dream_id,
+            session["user_id"]
+        )
     )
-)
 
     connection.commit()
+    cursor.close()
     connection.close()
 
     return jsonify({"message": "Dream updated successfully"})
+
+
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
-
     if request.method == "POST":
-
         username = request.form["username"]
         password = request.form["password"]
 
         hashed_password = generate_password_hash(password)
 
-        connection = sqlite3.connect("dreams.db")
+        connection = get_db_connection()
         cursor = connection.cursor()
 
         try:
             cursor.execute(
                 """
                 INSERT INTO users (username, password)
-                VALUES (?, ?)
+                VALUES (%s, %s)
                 """,
                 (username, hashed_password)
             )
 
             connection.commit()
+
+            cursor.close()
             connection.close()
 
             return "Account created successfully!"
 
-        except sqlite3.IntegrityError:
+        except UniqueViolation:
+            connection.rollback()
 
+            cursor.close()
             connection.close()
 
             return "That username already exists."
 
     return render_template("signup.html")
-@app.route("/login", methods=["GET", "POST"])
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
-
     if request.method == "POST":
-
         username = request.form["username"]
         password = request.form["password"]
 
-        connection = sqlite3.connect("dreams.db")
+        connection = get_db_connection()
         cursor = connection.cursor()
 
         cursor.execute(
-            "SELECT id, username, password FROM users WHERE username = ?",
+            """
+            SELECT id, username, password
+            FROM users
+            WHERE username = %s
+            """,
             (username,)
         )
 
         user = cursor.fetchone()
 
+        cursor.close()
         connection.close()
 
         if user and check_password_hash(user[2], password):
@@ -202,10 +213,13 @@ def login():
         return "Invalid username or password."
 
     return render_template("login.html")
+
+
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
+
+
 if __name__ == "__main__":
     app.run(debug=True)
-    
