@@ -4,7 +4,30 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = "dreamlogger-secret-key"
+connection = sqlite3.connect("dreams.db")
+cursor = connection.cursor()
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS dreams (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT,
+    text TEXT,
+    mood TEXT,
+    theme TEXT,
+    user_id INTEGER
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL
+)
+""")
+
+connection.commit()
+connection.close()
 
 @app.route("/")
 def home():
